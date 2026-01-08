@@ -1,0 +1,5 @@
+{
+  "name": "MorphoStereo DSP Prototype",
+  "description": "A real-time Web Audio implementation of the Spectral Separation stereo widening algorithm. It splits mono audio into frequency bands and applies static panning per band to create a spacious stereo image without phase issues.",
+  "requestFramePermissions": []
+}
