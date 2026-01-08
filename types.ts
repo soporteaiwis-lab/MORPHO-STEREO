@@ -1,3 +1,4 @@
+
 export interface BandConfig {
   id: string;
   name: string;
@@ -11,10 +12,13 @@ export enum PlaybackState {
   IDLE = 'IDLE',
   PLAYING = 'PLAYING',
   PAUSED = 'PAUSED',
-  LOADING = 'LOADING'
+  LOADING = 'LOADING',
+  EXPORTING = 'EXPORTING'
 }
 
 export interface AudioVisualizationData {
   leftFrequency: Uint8Array;
   rightFrequency: Uint8Array;
 }
+
+export type BitDepth = 16 | 24 | 32;
