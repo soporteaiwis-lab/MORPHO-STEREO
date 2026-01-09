@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { audioEngine } from './services/audioEngine';
 import BandControl from './components/BandControl';
@@ -23,6 +22,7 @@ const App = () => {
   const [bands, setBands] = useState<BandConfig[]>(INITIAL_BANDS);
   const [playbackState, setPlaybackState] = useState<PlaybackState>(PlaybackState.IDLE);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   
   // DSP
   const [haasEnabled, setHaasEnabled] = useState(false);
@@ -33,11 +33,9 @@ const App = () => {
   // Transport & Timeline
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [isScrubbing, setIsScrubbing] = useState(false);
   
   // Visuals
   const [zoomLevel, setZoomLevel] = useState(1);
-  const [ampScale, setAmpScale] = useState(1);
   const [correlation, setCorrelation] = useState(1);
   const [autoCorrecting, setAutoCorrecting] = useState(false);
   
@@ -48,23 +46,20 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- LOOPS ---
-
-  // 1. Time & Analysis Loop
   useEffect(() => {
     let frameId: number;
     let correctionCooldown = 0;
 
     const loop = () => {
-        if (!isScrubbing) {
-            setCurrentTime(audioEngine.getCurrentTime());
-        }
+        // Sync Time
+        setCurrentTime(audioEngine.getCurrentTime());
         setDuration(audioEngine.getDuration());
 
         if (playbackState === PlaybackState.PLAYING) {
             const currCorr = audioEngine.getPhaseCorrelation();
             setCorrelation(prev => prev * 0.9 + currCorr * 0.1);
 
-            // Safe Mode
+            // Safe Mode Logic
             if (monoSafeMode && !bypass && currCorr < 0 && correctionCooldown <= 0) {
                  if (haasEnabled) { setHaasEnabled(false); audioEngine.setHaasState(false); }
                  if (masterWidth > 0.5) { 
@@ -82,9 +77,7 @@ const App = () => {
     };
     loop();
     return () => cancelAnimationFrame(frameId);
-  }, [playbackState, haasEnabled, monoSafeMode, bypass, masterWidth, isScrubbing]);
-
-  // --- HANDLERS ---
+  }, [playbackState, haasEnabled, monoSafeMode, bypass, masterWidth]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -92,6 +85,7 @@ const App = () => {
       setPlaybackState(PlaybackState.LOADING);
       setFileName(file.name);
       await audioEngine.loadAudio(file);
+      setAudioBuffer(audioEngine.getBuffer()); // Update buffer for visualizer
       setPlaybackState(PlaybackState.IDLE);
       setCurrentTime(0);
     }
@@ -122,16 +116,14 @@ const App = () => {
     setCorrelation(1);
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const time = parseFloat(e.target.value);
+  const handleSeek = (time: number) => {
       setCurrentTime(time);
       audioEngine.seek(time);
   };
 
   const handleSkip = (val: number) => {
       const newTime = Math.max(0, Math.min(currentTime + val, duration));
-      setCurrentTime(newTime);
-      audioEngine.seek(newTime);
+      handleSeek(newTime);
   };
 
   const handleExport = async () => {
@@ -149,7 +141,6 @@ const App = () => {
       }
   };
 
-  // --- FORMATTERS ---
   const fmtTime = (s: number) => {
       const m = Math.floor(s / 60);
       const sec = Math.floor(s % 60);
@@ -157,177 +148,177 @@ const App = () => {
   }
 
   return (
-    <div className="h-screen bg-dsp-dark text-white font-sans flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-dsp-dark text-white font-sans flex flex-col">
       
-      {/* --- TOP BAR --- */}
-      <header className="h-14 flex-shrink-0 flex justify-between items-center px-6 border-b border-white/5 bg-dsp-dark/95 backdrop-blur z-20">
-        <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-dsp-accent to-dsp-secondary">
+      {/* HEADER (Sticky) */}
+      <header className="sticky top-0 z-50 h-14 bg-dsp-dark/95 backdrop-blur border-b border-white/5 flex justify-between items-center px-4 lg:px-6 shadow-lg">
+        <div className="flex items-center gap-3">
+            <h1 className="text-xl lg:text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-dsp-accent to-dsp-secondary">
             MorphoStereo
             </h1>
-            <div className="h-4 w-px bg-white/20"></div>
-            <span className="text-xs font-mono text-gray-400">PROTOTYPE v2.0</span>
+            <div className="h-4 w-px bg-white/20 hidden sm:block"></div>
+            <span className="text-xs font-mono text-gray-400 hidden sm:block">PROTOTYPE v2.1</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
              <button 
                 onClick={() => setShowExport(!showExport)}
                 disabled={!fileName}
                 className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-gray-300 bg-white/5 hover:bg-white/10 rounded border border-white/10 transition-all disabled:opacity-50"
             >
                 <DownloadIcon className="w-4 h-4" />
-                EXPORT
+                <span className="hidden sm:inline">EXPORT</span>
             </button>
             <button 
                 onClick={() => setShowCode(true)}
                 className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-dsp-accent bg-dsp-accent/10 hover:bg-dsp-accent/20 rounded border border-dsp-accent/20 transition-all"
             >
                 <CodeIcon className="w-4 h-4" />
-                AI KERNEL
+                <span className="hidden sm:inline">AI KERNEL</span>
             </button>
         </div>
       </header>
 
-      {/* --- MAIN WORKSPACE --- */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+      {/* MAIN CONTENT WRAPPER */}
+      {/* Mobile: Column (Scrolls). Desktop: Row (Fixed Height) */}
+      <div className="flex-1 flex flex-col lg:flex-row lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
         
-        {/* LEFT SIDEBAR: DSP CONTROLS (Scrollable on mobile) */}
-        <aside className="w-full lg:w-80 flex-shrink-0 bg-dsp-panel border-r border-white/5 flex flex-col z-10 overflow-y-auto">
-            <div className="p-4 border-b border-white/5">
-                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Channel Strip</h2>
-                <div className="flex flex-col gap-2 mb-4">
-                     <button 
-                        onClick={() => setMonoSafeMode(!monoSafeMode)}
-                        className={`flex items-center p-3 rounded border transition-all ${monoSafeMode ? 'bg-emerald-900/20 border-emerald-500/50' : 'bg-black/20 border-white/5'}`}
-                    >
-                        <ShieldCheckIcon className={`w-4 h-4 mr-3 ${monoSafeMode ? 'text-emerald-400' : 'text-gray-500'}`} />
-                        <div className="text-left">
-                            <div className={`text-xs font-bold ${monoSafeMode ? 'text-emerald-400' : 'text-gray-400'}`}>Mono Safe</div>
-                        </div>
-                    </button>
-                    <button 
-                        onClick={() => { setBypass(!bypass); audioEngine.setBypass(!bypass); }}
-                        className={`flex items-center p-3 rounded border transition-all ${bypass ? 'bg-orange-900/20 border-orange-500/50' : 'bg-black/20 border-white/5'}`}
-                    >
-                        <CompareIcon className={`w-4 h-4 mr-3 ${bypass ? 'text-orange-400' : 'text-gray-500'}`} />
-                        <div className="text-left">
-                            <div className={`text-xs font-bold ${bypass ? 'text-orange-400' : 'text-gray-400'}`}>Bypass</div>
-                        </div>
-                    </button>
-                </div>
-                
-                <div className="mb-2">
-                    <div className="flex justify-between text-xs font-bold text-gray-400 mb-1">
-                        <span>Stereo Width</span>
-                        <span className="text-dsp-accent">{Math.round(masterWidth * 100)}%</span>
-                    </div>
-                    <input 
-                        type="range" min="0" max="1" step="0.01" value={masterWidth}
-                        onChange={(e) => {setMasterWidth(parseFloat(e.target.value)); audioEngine.setGlobalWidth(parseFloat(e.target.value));}}
-                        className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-dsp-accent [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3"
-                    />
-                </div>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto">
-                 <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Spectral Bands</h2>
-                    <button onClick={() => { setHaasEnabled(!haasEnabled); audioEngine.setHaasState(!haasEnabled); }} className={`text-[9px] px-2 py-0.5 rounded font-bold ${haasEnabled ? 'bg-indigo-500 text-white' : 'bg-gray-700 text-gray-400'}`}>HAAS: {haasEnabled ? 'ON' : 'OFF'}</button>
-                </div>
-                <div className="flex flex-col gap-3">
-                    {bands.map(b => (
-                        <BandControl key={b.id} band={b} onChangePan={(id, p) => {
-                            setBands(prev => prev.map(x => x.id === id ? { ...x, pan: p } : x));
-                            audioEngine.updateBandPan(id, p);
-                        }} />
-                    ))}
-                </div>
-            </div>
-        </aside>
-
-        {/* CENTER: VISUALIZER & TIMELINE */}
-        <div className="flex-1 flex flex-col bg-black relative">
+        {/* RIGHT AREA (Desktop) / TOP AREA (Mobile) -> VISUALIZER & TRANSPORT */}
+        <div className="flex-shrink-0 lg:flex-1 flex flex-col bg-black lg:order-2 border-b lg:border-b-0 lg:border-l border-white/5">
             
-            {/* 1. VISUALIZER AREA */}
-            <div className="flex-1 relative overflow-hidden p-4">
-                <Visualizer isPlaying={true} zoomLevel={zoomLevel} amplitudeScale={ampScale} />
+            {/* Visualizer Container */}
+            {/* On mobile: Fixed height. On Desktop: Flexible */}
+            <div className="relative h-[300px] lg:flex-1 w-full bg-[#020617] p-4">
+                <Visualizer 
+                    buffer={audioBuffer} 
+                    currentTime={currentTime} 
+                    duration={duration} 
+                    zoomLevel={zoomLevel} 
+                    onSeek={handleSeek}
+                />
                 
-                {/* Floating HUD */}
+                {/* HUD Controls */}
                 <div className="absolute top-6 right-6 flex flex-col gap-2">
-                     <div className="bg-black/80 backdrop-blur border border-white/10 rounded-lg p-2 flex flex-col gap-2">
-                         <span className="text-[9px] font-bold text-gray-500 uppercase text-center">Zoom View</span>
+                     <div className="bg-black/80 backdrop-blur border border-white/10 rounded-lg p-2 flex flex-col gap-2 shadow-xl">
                          <div className="flex gap-2">
-                             <button onClick={() => setZoomLevel(Math.min(5, zoomLevel + 0.5))} className="p-1 hover:bg-white/10 rounded text-gray-300"><ZoomInIcon className="w-4 h-4"/></button>
-                             <button onClick={() => setZoomLevel(Math.max(1, zoomLevel - 0.5))} className="p-1 hover:bg-white/10 rounded text-gray-300"><ZoomOutIcon className="w-4 h-4"/></button>
-                         </div>
-                         <div className="h-px bg-white/10 w-full"></div>
-                         <div className="flex gap-2">
-                             <button onClick={() => setAmpScale(Math.min(3, ampScale + 0.5))} className="text-[10px] text-gray-400 hover:text-white font-mono">Y+</button>
-                             <button onClick={() => setAmpScale(Math.max(0.5, ampScale - 0.5))} className="text-[10px] text-gray-400 hover:text-white font-mono">Y-</button>
+                             <button onClick={() => setZoomLevel(Math.min(10, zoomLevel + 1))} className="p-1 hover:bg-white/10 rounded text-gray-300" title="Zoom In"><ZoomInIcon className="w-4 h-4"/></button>
+                             <button onClick={() => setZoomLevel(Math.max(1, zoomLevel - 1))} className="p-1 hover:bg-white/10 rounded text-gray-300" title="Zoom Out"><ZoomOutIcon className="w-4 h-4"/></button>
                          </div>
                      </div>
                 </div>
 
-                <div className="absolute bottom-6 right-6">
+                <div className="absolute bottom-6 right-6 pointer-events-none">
                     <PhaseMeter correlation={correlation} isCritical={autoCorrecting} />
                 </div>
             </div>
 
-            {/* 2. TRANSPORT BAR */}
-            <div className="h-24 bg-dsp-panel border-t border-white/5 p-4 flex flex-col justify-center z-20">
-                {/* Scrubber */}
-                <div className="flex items-center gap-3 mb-2">
-                    <span className="text-[10px] font-mono text-gray-400 w-10 text-right">{fmtTime(currentTime)}</span>
-                    <div className="flex-1 relative h-6 flex items-center group">
-                        <div className="absolute inset-0 bg-black/30 rounded-full h-1.5 top-1/2 -translate-y-1/2"></div>
-                        <div 
-                            className="absolute h-1.5 bg-dsp-accent rounded-full top-1/2 -translate-y-1/2" 
-                            style={{width: `${(currentTime / (duration || 1)) * 100}%`}}
-                        ></div>
-                        <input 
-                            type="range" min="0" max={duration || 1} step="0.01"
-                            value={currentTime}
-                            onMouseDown={() => setIsScrubbing(true)}
-                            onMouseUp={() => setIsScrubbing(false)}
-                            onChange={handleSeek}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        />
-                    </div>
-                    <span className="text-[10px] font-mono text-gray-400 w-10">{fmtTime(duration)}</span>
+            {/* Transport Bar */}
+            <div className="bg-dsp-panel border-t border-white/5 p-4 z-20 shadow-xl">
+                {/* Scrubber Time */}
+                <div className="flex justify-between text-[10px] font-mono text-gray-400 mb-1 px-1">
+                    <span>{fmtTime(currentTime)}</span>
+                    <span>{fmtTime(duration)}</span>
+                </div>
+                
+                {/* Progress Bar (Visual Only, scrub handled by visualizer now, but kept for clarity) */}
+                <div className="h-1 bg-black/50 rounded-full w-full mb-4 overflow-hidden relative">
+                    <div className="absolute top-0 bottom-0 left-0 bg-dsp-accent" style={{width: `${(currentTime / (duration || 1)) * 100}%`}}></div>
                 </div>
 
-                {/* Buttons */}
-                <div className="flex items-center justify-between">
-                     {/* File Input Hidden */}
+                {/* Controls */}
+                <div className="flex items-center justify-between max-w-2xl mx-auto">
                      <input type="file" ref={fileInputRef} className="hidden" accept="audio/*" onChange={handleFileUpload} />
                      
-                     <div className="flex items-center gap-4">
-                        <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 text-xs font-bold text-gray-400 hover:text-white">
-                            <UploadIcon className="w-4 h-4" />
-                            <span className="hidden md:inline">{fileName ? fileName.substring(0, 15) + '...' : "LOAD FILE"}</span>
-                        </button>
-                     </div>
+                     <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-1 text-[10px] font-bold text-gray-400 hover:text-white group">
+                        <div className="p-2 rounded-full bg-white/5 group-hover:bg-white/10"><UploadIcon className="w-4 h-4" /></div>
+                        <span>LOAD</span>
+                     </button>
 
-                     <div className="flex items-center gap-4 absolute left-1/2 -translate-x-1/2">
-                        <button onClick={() => handleSkip(-currentTime)} className="text-gray-400 hover:text-white"><SkipStartIcon className="w-5 h-5"/></button>
-                        <button onClick={() => handleSkip(-5)} className="text-gray-400 hover:text-white"><BackwardIcon className="w-5 h-5"/></button>
+                     <div className="flex items-center gap-4">
+                        <button onClick={() => handleSkip(-5)} className="text-gray-400 hover:text-white active:scale-95"><BackwardIcon className="w-6 h-6"/></button>
                         
                         <button 
                             onClick={togglePlay}
                             disabled={!fileName}
-                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${playbackState === PlaybackState.PLAYING ? 'bg-dsp-accent text-white shadow-[0_0_15px_#0ea5e9]' : 'bg-white text-black hover:scale-105'}`}
+                            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${playbackState === PlaybackState.PLAYING ? 'bg-dsp-accent text-white shadow-[0_0_20px_rgba(14,165,233,0.5)]' : 'bg-white text-black hover:scale-105'}`}
                         >
-                            {playbackState === PlaybackState.PLAYING ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5 ml-0.5" />}
+                            {playbackState === PlaybackState.PLAYING ? <PauseIcon className="w-6 h-6" /> : <PlayIcon className="w-6 h-6 ml-0.5" />}
                         </button>
 
-                        <button onClick={() => handleStop()} className="text-gray-400 hover:text-red-400"><StopIcon className="w-6 h-6"/></button>
-                        <button onClick={() => handleSkip(5)} className="text-gray-400 hover:text-white"><ForwardIcon className="w-5 h-5"/></button>
-                        <button onClick={() => handleSkip(duration - currentTime)} className="text-gray-400 hover:text-white"><SkipEndIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleStop()} className="text-gray-400 hover:text-red-400 active:scale-95"><StopIcon className="w-7 h-7"/></button>
+                        <button onClick={() => handleSkip(5)} className="text-gray-400 hover:text-white active:scale-95"><ForwardIcon className="w-6 h-6"/></button>
                      </div>
 
-                     <div></div> {/* Spacer */}
+                     <div className="w-8"></div> {/* Spacer balance */}
                 </div>
             </div>
         </div>
+
+        {/* LEFT AREA (Desktop) / BOTTOM AREA (Mobile) -> CONTROLS */}
+        <aside className="w-full lg:w-96 bg-dsp-panel lg:order-1 lg:overflow-y-auto border-r border-white/5">
+            <div className="p-6 pb-20 lg:pb-6">
+                
+                {/* Global Section */}
+                <div className="mb-8">
+                    <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4 border-b border-white/5 pb-2">Master Section</h2>
+                    
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                         <button 
+                            onClick={() => setMonoSafeMode(!monoSafeMode)}
+                            className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all text-center gap-2 ${monoSafeMode ? 'bg-emerald-900/20 border-emerald-500/50' : 'bg-black/20 border-white/5'}`}
+                        >
+                            <ShieldCheckIcon className={`w-5 h-5 ${monoSafeMode ? 'text-emerald-400' : 'text-gray-500'}`} />
+                            <span className={`text-[10px] font-bold ${monoSafeMode ? 'text-emerald-400' : 'text-gray-400'}`}>SAFE MODE</span>
+                        </button>
+                        <button 
+                            onClick={() => { setBypass(!bypass); audioEngine.setBypass(!bypass); }}
+                            className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all text-center gap-2 ${bypass ? 'bg-orange-900/20 border-orange-500/50' : 'bg-black/20 border-white/5'}`}
+                        >
+                            <CompareIcon className={`w-5 h-5 ${bypass ? 'text-orange-400' : 'text-gray-500'}`} />
+                            <span className={`text-[10px] font-bold ${bypass ? 'text-orange-400' : 'text-gray-400'}`}>BYPASS</span>
+                        </button>
+                    </div>
+                    
+                    <div className="bg-black/20 p-4 rounded-lg border border-white/5">
+                        <div className="flex justify-between text-xs font-bold text-gray-300 mb-2">
+                            <span>Stereo Width</span>
+                            <span className="text-dsp-accent bg-dsp-accent/10 px-2 rounded">{Math.round(masterWidth * 100)}%</span>
+                        </div>
+                        <input 
+                            type="range" min="0" max="1" step="0.01" value={masterWidth}
+                            onChange={(e) => {setMasterWidth(parseFloat(e.target.value)); audioEngine.setGlobalWidth(parseFloat(e.target.value));}}
+                            className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:bg-dsp-accent [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:shadow-lg"
+                        />
+                        <div className="flex justify-between text-[9px] text-gray-500 mt-2 uppercase font-mono">
+                            <span>Mono</span>
+                            <span>Wide</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Bands Section */}
+                <div>
+                     <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-2">
+                        <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Spectral Mixer</h2>
+                        <button 
+                            onClick={() => { setHaasEnabled(!haasEnabled); audioEngine.setHaasState(!haasEnabled); }} 
+                            className={`text-[10px] px-2 py-1 rounded font-bold transition-all ${haasEnabled ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'bg-gray-800 text-gray-400'}`}
+                        >
+                            HAAS: {haasEnabled ? 'ON' : 'OFF'}
+                        </button>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                        {bands.map(b => (
+                            <BandControl key={b.id} band={b} onChangePan={(id, p) => {
+                                setBands(prev => prev.map(x => x.id === id ? { ...x, pan: p } : x));
+                                audioEngine.updateBandPan(id, p);
+                            }} />
+                        ))}
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
       </div>
 
       {/* --- MODALS --- */}
@@ -335,29 +326,30 @@ const App = () => {
       
       {/* EXPORT MODAL */}
       {showExport && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-              <div className="bg-dsp-panel border border-white/10 p-6 rounded-xl w-80 shadow-2xl">
-                  <h3 className="text-lg font-bold text-white mb-4">Export Audio</h3>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+              <div className="bg-dsp-panel border border-white/10 p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                  <h3 className="text-lg font-bold text-white mb-4">Export Stereo Mix</h3>
                   <div className="flex flex-col gap-3 mb-6">
-                      <p className="text-xs text-gray-400 mb-2">Select Bit Depth (WAV):</p>
+                      <p className="text-xs text-gray-400 mb-2">Select Resolution:</p>
                       {[16, 24, 32].map((bit) => (
                           <button 
                             key={bit}
                             onClick={() => setExportFormat(bit as BitDepth)}
-                            className={`p-2 rounded text-sm font-mono border ${exportFormat === bit ? 'bg-dsp-accent/20 border-dsp-accent text-dsp-accent' : 'bg-black/20 border-white/5 text-gray-400'}`}
+                            className={`p-3 rounded text-sm font-mono border text-left flex justify-between ${exportFormat === bit ? 'bg-dsp-accent/20 border-dsp-accent text-dsp-accent' : 'bg-black/20 border-white/5 text-gray-400'}`}
                           >
-                              {bit}-bit {bit === 32 ? 'Float' : 'PCM'}
+                              <span>{bit}-bit {bit === 32 ? 'Float' : 'PCM'} WAV</span>
+                              {exportFormat === bit && <span className="font-bold">✓</span>}
                           </button>
                       ))}
                   </div>
-                  <div className="flex gap-2">
-                      <button onClick={() => setShowExport(false)} className="flex-1 py-2 text-xs font-bold text-gray-400 hover:text-white">CANCEL</button>
+                  <div className="flex gap-3">
+                      <button onClick={() => setShowExport(false)} className="flex-1 py-3 text-xs font-bold text-gray-400 hover:text-white border border-transparent hover:border-white/10 rounded">CANCEL</button>
                       <button 
                         onClick={handleExport}
                         disabled={playbackState === PlaybackState.EXPORTING}
-                        className="flex-1 py-2 bg-dsp-accent text-white rounded font-bold text-xs hover:bg-dsp-accent/80 flex justify-center"
+                        className="flex-1 py-3 bg-dsp-accent text-white rounded font-bold text-xs hover:bg-dsp-accent/80 flex justify-center items-center shadow-lg shadow-dsp-accent/20"
                       >
-                          {playbackState === PlaybackState.EXPORTING ? 'RENDERING...' : 'DOWNLOAD WAV'}
+                          {playbackState === PlaybackState.EXPORTING ? 'RENDERING...' : 'DOWNLOAD FILE'}
                       </button>
                   </div>
               </div>

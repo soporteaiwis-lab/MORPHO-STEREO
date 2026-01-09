@@ -3,7 +3,7 @@ import { BandConfig, BitDepth } from "../types";
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
-  private audioBuffer: AudioBuffer | null = null;
+  public audioBuffer: AudioBuffer | null = null;
   
   // Graph Nodes (for Realtime)
   private masterGain: GainNode | null = null;
@@ -36,6 +36,10 @@ export class AudioEngine {
     this.audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
     this.pauseTime = 0;
     this.startTime = 0;
+  }
+
+  public getBuffer(): AudioBuffer | null {
+      return this.audioBuffer;
   }
 
   public getDuration(): number {
